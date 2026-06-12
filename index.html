@@ -11,7 +11,8 @@
   :root{
     --bg:#f4f5f3;--card:#ffffff;--ink:#16191c;--muted:#8a9099;--line:#e7e9e6;
     --green:#1f9d76;--green-bg:#e7f4ef;--amber:#c07a1d;--amber-bg:#fbf1e0;
-    --blue:#2f6fed;--blue-bg:#e9f0fd;--gray:#6b7280;--gray-bg:#ececef;--red:#c0392b;
+    --blue:#2f6fed;--blue-bg:#e9f0fd;--gray:#6b7280;--gray-bg:#ececef;
+    --red:#c0392b;--red-bg:#fce9e6;
     --shadow:0 1px 2px rgba(20,25,28,.04),0 6px 18px rgba(20,25,28,.06);
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -43,6 +44,10 @@
   .search{width:100%;border:1px solid var(--line);background:var(--card);border-radius:12px;
           padding:12px 14px;font-size:16px;color:var(--ink);outline:none;box-shadow:var(--shadow)}
   .search:focus{border-color:var(--green)}.search::placeholder{color:var(--muted)}
+  .seg{display:inline-flex;background:var(--gray-bg);border-radius:10px;padding:3px;margin-top:10px;gap:2px}
+  .seg button{border:none;background:none;font-size:13px;font-weight:600;color:var(--muted);
+              padding:6px 16px;border-radius:8px;cursor:pointer}
+  .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06)}
   .chips{display:flex;gap:7px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none}
   .chips::-webkit-scrollbar{display:none}
   .chip{flex:0 0 auto;border:1px solid var(--line);background:var(--card);border-radius:999px;
@@ -57,16 +62,17 @@
        border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:.12s}
   .row:active{transform:scale(.99)}.row:hover{border-color:#d3d7d2}
   .row .nm{font-weight:600;font-size:15px;letter-spacing:-.01em}
-  .row .meta{font-size:12px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:7px}
+  .row .meta{font-size:12px;color:var(--muted);margin-top:3px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
   .row .rt{text-align:right;flex-shrink:0}
   .row .rt .a{font-size:14px;font-weight:600}.row .rt .b{font-size:11px;color:var(--muted)}
   .empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:14px}
 
   .badge{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 7px;border-radius:6px;flex:0 0 auto}
-  .b-Hero{color:var(--green);background:var(--green-bg)}
-  .b-Core{color:var(--blue);background:var(--blue-bg)}
-  .b-Slow{color:var(--amber);background:var(--amber-bg)}
-  .b-Dead{color:var(--gray);background:var(--gray-bg)}
+  .b-Hero{color:var(--green);background:var(--green-bg)}.b-Core{color:var(--blue);background:var(--blue-bg)}
+  .b-Slow{color:var(--amber);background:var(--amber-bg)}.b-Dead{color:var(--gray);background:var(--gray-bg)}
+  .s-Overstock{color:var(--amber);background:var(--amber-bg)}
+  .s-Low{color:var(--red);background:var(--red-bg)}
+  .s-Healthy{color:var(--green);background:var(--green-bg)}
 
   .back{display:inline-flex;align-items:center;gap:6px;background:none;border:none;color:var(--green);
         font-weight:600;font-size:14px;cursor:pointer;padding:6px 0;margin:4px 0 6px}
@@ -81,8 +87,16 @@
   .tcard .amt{font-size:13px;color:var(--muted);margin-top:6px}
   .tcard .pace{font-size:11px;color:var(--muted);margin-top:3px}
   .tcard.sales .qty{color:var(--green)}.neg{color:var(--red)!important}
+  .hstat{font-size:12px;font-weight:600;margin-top:7px}
+  .h-Overstock{color:var(--amber)}.h-Low{color:var(--red)}.h-Healthy{color:var(--green)}
 
-  .bsec{margin-top:22px}.bsec .listlabel{margin-left:0;display:flex;justify-content:space-between}
+  .transfer{display:flex;gap:9px;align-items:flex-start;background:var(--blue-bg);border:1px solid #cdd9f5;
+            border-radius:12px;padding:11px 13px;margin-top:14px;font-size:13px;color:#274690;line-height:1.45}
+  .transfer .tlabel{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+            background:var(--blue);color:#fff;padding:3px 6px;border-radius:5px;flex:0 0 auto;margin-top:1px}
+  .transfer b{font-weight:700}
+
+  .bsec{margin-top:20px}.bsec .listlabel{margin-left:0;display:flex;justify-content:space-between}
   .bgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .bcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
   .bcard.idle{opacity:.4}
@@ -114,39 +128,54 @@ const BS_CAL={2078:[31,31,31,32,31,31,30,29,30,29,30,30],2079:[31,31,32,31,31,31
 const SALES_BRANCHES=["KTM","NGD","BTL","POK","DMK","BTM","ITH","NPJ","LHN","ATR"];
 const TGT={KTM:25,NGD:15,BTL:11,POK:20,DMK:4,BTM:7,ITH:10,NPJ:3,LHN:2.5,ATR:2.5};
 const CATS=["Hero","Core","Slow","Dead"];
-const FLOOR=1;      // ignore branch targets smaller than 1 unit (too small to judge)
-const HIT=0.75;     // a branch must reach 75% of its fair share
-
+const STOCKS=["Overstock","Low","Healthy"];
+const FLOOR=1,HIT=0.75,OVER=2,UNDER=0.5;   // overstock >2mo cover, low <0.5mo cover
 const C={sn:0,name:1,com:2,salesStart:3,salesTotal:13,cp:14,salesAmt:15,ont:19,stockStart:20,stockTotal:30,stockAmt:32};
 
-function monthInfo(dateStr){
-  const m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec((dateStr||"").trim());
+function monthInfo(d){
+  const m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec((d||"").trim());
   if(!m)return{f:1,exact:false,label:""};
-  const y=+m[1],mo=+m[2],d=+m[3];
-  const arr=BS_CAL[y];const dim=(arr&&arr[mo-1])?arr[mo-1]:30;
-  return{f:Math.min(d/dim,1),exact:!!(arr&&arr[mo-1]),d,dim,label:`day ${d}/${dim}`};
+  const y=+m[1],mo=+m[2],dd=+m[3];const arr=BS_CAL[y];const dim=(arr&&arr[mo-1])?arr[mo-1]:30;
+  return{f:Math.min(dd/dim,1),exact:!!(arr&&arr[mo-1]),d:dd,dim,label:`day ${dd}/${dim}`};
 }
-function categorize(amt,f){
-  if(amt>100000*f)return"Hero";
-  if(amt>20000*f)return"Core";
-  if(amt>5000*f)return"Slow";
-  return"Dead";
+function categorize(amt,f){if(amt>100000*f)return"Hero";if(amt>20000*f)return"Core";if(amt>5000*f)return"Slow";return"Dead";}
+function stockHealth(p,f){
+  const rate=f>0?p.salesTotal/f:p.salesTotal;            // projected monthly selling rate
+  let cover=rate>0?p.stockTotal/rate:(p.stockTotal>0?Infinity:0);
+  let status;
+  if(rate<=0)status=p.stockTotal>0?"Overstock":"Healthy";
+  else if(p.stockTotal>OVER*rate)status="Overstock";
+  else if(p.stockTotal<UNDER*rate)status="Low";
+  else status="Healthy";
+  return{status,cover,rate};
+}
+function coverText(p){
+  if(p.rate<=0)return p.stockTotal>0?"selling 0 · frozen":"no stock";
+  if(p.stockTotal<=0)return"out of stock";
+  return p.cover<1?Math.round(p.cover*30)+"d cover":p.cover.toFixed(1)+" mo cover";
 }
 function branchStatus(p){
   return SALES_BRANCHES.map(b=>{
-    const target=TGT[b]/100*p.salesTotal, sold=p.sales[b], stock=p.stock[b];
+    const target=TGT[b]/100*p.salesTotal,sold=p.sales[b],stock=p.stock[b];
     const pct=target>0?Math.round(sold/target*100):null;
     let status="none";
-    if(target>=FLOOR){ status = sold>=HIT*target ? "ok" : (stock>0?"push":"send"); }
+    if(target>=FLOOR)status=sold>=HIT*target?"ok":(stock>0?"push":"send");
     return{b,sold,stock,target,pct,status};
   });
+}
+function transferHint(p){
+  const dry=SALES_BRANCHES.filter(b=>p.sales[b]>0&&p.stock[b]<=0);
+  if(!dry.length)return null;
+  let src=null;
+  if(p.ont>0)src={name:"ONT godown",qty:p.ont};
+  else SALES_BRANCHES.forEach(b=>{if(p.stock[b]>0&&(!src||p.stock[b]>src.qty))src={name:b,qty:p.stock[b]};});
+  return src?{dry,src}:null;
 }
 
 /* ---------- state ---------- */
 let PRODUCTS=[],REPORT_DATE="",FRAC={f:1,exact:false,label:""};
 let view={screen:"upload"};
-const $=id=>document.getElementById(id);
-const app=$("app");
+const $=id=>document.getElementById(id),app=$("app");
 const qty=n=>(n==null||n===""?"0":Number(n).toLocaleString("en-IN"));
 const money=n=>{if(n==null||n==="")return"Rs 0";return"Rs "+Math.round(Number(n)).toLocaleString("en-IN");};
 const neg=n=>Number(n)<0?"neg":"";
@@ -180,8 +209,7 @@ function parseWorkbook(wb){
   const rows=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:null});
   let sheetDate="";
   for(let r=0;r<3;r++){for(const cell of(rows[r]||[])){
-    if(typeof cell==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(cell.trim())){sheetDate=cell.trim();break;}}
-    if(sheetDate)break;}
+    if(typeof cell==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(cell.trim())){sheetDate=cell.trim();break;}}if(sheetDate)break;}
   const out=[];
   for(const row of rows){
     const sn=row[C.sn],name=row[C.name];
@@ -197,7 +225,11 @@ function parseWorkbook(wb){
 }
 function setReport(date,products){
   REPORT_DATE=date||"";FRAC=monthInfo(REPORT_DATE);PRODUCTS=products;
-  PRODUCTS.forEach(p=>{p.category=categorize(p.salesAmt,FRAC.f);p.proj=FRAC.f>0?p.salesAmt/FRAC.f:p.salesAmt;});
+  PRODUCTS.forEach(p=>{
+    p.category=categorize(p.salesAmt,FRAC.f);
+    p.proj=FRAC.f>0?p.salesAmt/FRAC.f:p.salesAmt;
+    const sh=stockHealth(p,FRAC.f);p.stockHealth=sh.status;p.cover=sh.cover;p.rate=sh.rate;
+  });
 }
 function handleFile(file){
   $("err").textContent="";
@@ -208,7 +240,7 @@ function handleFile(file){
     const{sheetDate,products}=parseWorkbook(wb);
     if(!products.length)throw new Error("No products found. Is this the daily report file?");
     setReport(fnameDate||sheetDate,products);save();
-    view={screen:"list",query:"",cat:"All"};render();
+    view={screen:"list",query:"",lens:"sales",cat:"All"};render();
   }catch(err){$("err").textContent=err.message||"Could not read that file.";}};
   rd.onerror=()=>{$("err").textContent="Could not read that file.";};
   rd.readAsArrayBuffer(file);
@@ -219,7 +251,7 @@ function renderUpload(){
   const showKeep=PRODUCTS.length>0;
   app.innerHTML=`<div class="upload-wrap">
     <canvas class="brandmark" id="mark" width="64" height="64"></canvas>
-    <h1>Daily Report</h1>
+    <h1>Product Report</h1>
     <p>Upload the day's Excel report to explore sales, stock and targets by branch.</p>
     <label class="drop" id="drop"><div class="ic">📄</div><div class="big">Upload report</div>
       <div class="sm">Tap to choose an .xlsx file</div><input id="file" type="file" accept=".xlsx,.xls" hidden></label>
@@ -231,40 +263,61 @@ function renderUpload(){
   ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
   ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
   drop.addEventListener("drop",e=>{if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);});
-  if(showKeep)$("keep").onclick=()=>{view={screen:"list",query:"",cat:"All"};render();};
+  if(showKeep)$("keep").onclick=()=>{view={screen:"list",query:"",lens:"sales",cat:"All"};render();};
 }
 
-function counts(){const c={All:PRODUCTS.length};CATS.forEach(k=>c[k]=0);PRODUCTS.forEach(p=>c[p.category]++);return c;}
-function filtered(q,cat){
+function counts(lens){
+  const keys=lens==="sales"?CATS:STOCKS;const c={All:PRODUCTS.length};keys.forEach(k=>c[k]=0);
+  PRODUCTS.forEach(p=>{const k=lens==="sales"?p.category:p.stockHealth;if(k in c)c[k]++;});return c;
+}
+function filtered(lens,q,cat){
   let list=PRODUCTS;
-  if(cat&&cat!=="All")list=list.filter(p=>p.category===cat);
+  if(cat&&cat!=="All")list=list.filter(p=>(lens==="sales"?p.category:p.stockHealth)===cat);
   q=(q||"").trim().toLowerCase();
   if(q)list=list.filter(p=>p.name.toLowerCase().includes(q)||p.com.toLowerCase().includes(q));
-  return list.slice().sort((a,b)=>b.salesAmt-a.salesAmt);
+  let sort;
+  if(lens==="stock"&&cat==="Low")sort=(a,b)=>b.salesAmt-a.salesAmt;
+  else if(lens==="stock")sort=(a,b)=>b.stockAmt-a.stockAmt;
+  else sort=(a,b)=>b.salesAmt-a.salesAmt;
+  return list.slice().sort(sort);
 }
 function renderList(){
-  const q=view.query||"",cat=view.cat||"All",list=filtered(q,cat),cnt=counts();
-  const chips=["All",...CATS].map(k=>`<button class="chip ${k===cat?"active":""}" data-cat="${k}">${k}<span class="c">${cnt[k]}</span></button>`).join("");
+  const q=view.query||"",lens=view.lens||"sales",cat=view.cat||"All";
+  const list=filtered(lens,q,cat),cnt=counts(lens);
+  const chipKeys=lens==="sales"?["All",...CATS]:["All",...STOCKS];
+  const chips=chipKeys.map(k=>`<button class="chip ${k===cat?"active":""}" data-cat="${k}">${k}<span class="c">${cnt[k]}</span></button>`).join("");
   const sub=FRAC.label?` · ${FRAC.label}`:"";
+  let label;
+  if(cat==="All"&&!q)label=lens==="sales"?`Top by sales · ${PRODUCTS.length} products`:`Most frozen first · ${PRODUCTS.length} products`;
+  else label=`${list.length} ${list.length===1?"product":"products"}`;
   app.innerHTML=`<header>
     <div class="htop"><span class="ttl">Products</span>
       <button class="reload" id="reload">New file</button>
       <span class="date">${REPORT_DATE||""}${sub}</span></div>
     <input class="search" id="search" placeholder="Search product or company…" value="${esc(q)}" autocomplete="off">
+    <div class="seg">
+      <button data-lens="sales" class="${lens==="sales"?"on":""}">Sales</button>
+      <button data-lens="stock" class="${lens==="stock"?"on":""}">Stock</button>
+    </div>
     <div class="chips">${chips}</div>
   </header>
-  <main><div class="listlabel">${cat==="All"&&!q?`Top by sales · ${PRODUCTS.length} products`:`${list.length} ${list.length===1?"product":"products"}`}</div>
-    <div id="results"></div></main>
+  <main><div class="listlabel">${label}</div><div id="results"></div></main>
   <footer>Daily report viewer · ${REPORT_DATE||""}</footer>`;
   const res=$("results");
   if(!list.length)res.innerHTML=`<div class="empty">Nothing here${q?` for “${esc(q)}”`:""}.</div>`;
-  else res.innerHTML=list.slice(0,90).map(p=>{const i=PRODUCTS.indexOf(p);
-    return `<div class="row" data-i="${i}">
+  else res.innerHTML=list.map(p=>{const i=PRODUCTS.indexOf(p);
+    if(lens==="sales")return `<div class="row" data-i="${i}">
       <div><div class="nm">${p.name}</div>
         <div class="meta"><span class="badge b-${p.category}">${p.category}</span>${p.com?p.com+" · ":""}Stock ${qty(p.stockTotal)}</div></div>
       <div class="rt"><div class="a num ${neg(p.salesTotal)}">${qty(p.salesTotal)} sold</div>
-        <div class="b num">${money(p.salesAmt)}</div></div></div>`;}).join("");
-  res.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,query:q,cat};render();});
+        <div class="b num">${money(p.salesAmt)}</div></div></div>`;
+    return `<div class="row" data-i="${i}">
+      <div><div class="nm">${p.name}</div>
+        <div class="meta"><span class="badge s-${p.stockHealth}">${p.stockHealth}</span>${coverText(p)}</div></div>
+      <div class="rt"><div class="a num ${neg(p.stockTotal)}">${qty(p.stockTotal)} stock</div>
+        <div class="b num">${money(p.stockAmt)}</div></div></div>`;}).join("");
+  res.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,query:q,lens,cat};render();});
+  document.querySelectorAll(".seg button").forEach(el=>el.onclick=()=>{view.lens=el.dataset.lens;view.cat="All";render();});
   document.querySelectorAll(".chip").forEach(el=>el.onclick=()=>{view.cat=el.dataset.cat;render();});
   const s=$("search");
   s.oninput=e=>{view.query=e.target.value;renderList.focus=true;render();};
@@ -275,9 +328,12 @@ function renderList(){
 function renderDetail(){
   const p=PRODUCTS[view.i];
   const bs=branchStatus(p);
-  const nPush=bs.filter(x=>x.status==="push").length, nSend=bs.filter(x=>x.status==="send").length;
+  const nPush=bs.filter(x=>x.status==="push").length,nSend=bs.filter(x=>x.status==="send").length;
   const flagSummary=(nPush||nSend)?`${nPush?nPush+" to push":""}${nPush&&nSend?" · ":""}${nSend?nSend+" to restock":""}`:"all on target";
   const pace=(FRAC.f>0&&FRAC.f<1)?`<div class="pace">on pace for ${money(p.proj)}</div>`:"";
+  const tr=transferHint(p);
+  const trHtml=tr?`<div class="transfer"><span class="tlabel">Transfer</span>
+    <div>Send stock to <b>${tr.dry.join(", ")}</b> — ${tr.src.name} has ${qty(tr.src.qty)}.</div></div>`:"";
   const ont=`<div class="bcard ${p.ont===0?"idle":""}">
       <div class="code">ONT<span class="gd">Godown</span></div>
       <div class="bline"><span class="k">Stock</span><span class="v num ${neg(p.ont)}">${qty(p.ont)}</span></div>
@@ -305,12 +361,14 @@ function renderDetail(){
         <div class="amt num">${money(p.salesAmt)}</div>${pace}</div>
       <div class="tcard"><div class="lbl">Closing stock</div>
         <div class="qty num ${neg(p.stockTotal)}">${qty(p.stockTotal)}</div>
-        <div class="amt num">${money(p.stockAmt)}</div></div>
+        <div class="amt num">${money(p.stockAmt)}</div>
+        <div class="hstat h-${p.stockHealth}">● ${p.stockHealth} · ${coverText(p)}</div></div>
     </div>
+    ${trHtml}
     <div class="bsec"><div class="listlabel"><span>By branch</span><span>${flagSummary}</span></div>
       <div class="bgrid">${cards}</div></div>
     <footer>${REPORT_DATE||""}${FRAC.label?" · "+FRAC.label:""}</footer></main>`;
-  $("back").onclick=()=>{view={screen:"list",query:view.query||"",cat:view.cat||"All"};render();};
+  $("back").onclick=()=>{view={screen:"list",query:view.query||"",lens:view.lens||"sales",cat:view.cat||"All"};render();};
 }
 
 function render(){
@@ -320,6 +378,6 @@ function render(){
   if(view.screen!=="list")window.scrollTo(0,0);
 }
 (function init(){const s=loadSaved();
-  if(s){setReport(s.date,s.products);view={screen:"list",query:"",cat:"All"};}
+  if(s){setReport(s.date,s.products);view={screen:"list",query:"",lens:"sales",cat:"All"};}
   render();})();
 </script>
