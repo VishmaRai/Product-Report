@@ -109,6 +109,29 @@
   .tg{font-size:11px;color:var(--muted);margin-top:6px}
   .act{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-top:5px}
   .bcard.push .act{color:var(--amber)}.bcard.send .act{color:var(--blue)}
+
+  .nav{display:flex;gap:14px}
+  .nav button{background:none;border:none;font-size:15px;font-weight:700;color:var(--muted);
+              cursor:pointer;padding:0;letter-spacing:-.01em}
+  .nav button.on{color:var(--ink)}
+  .note{font-size:12px;color:var(--muted);margin:12px 4px 4px}
+  .dgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+  .dcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;
+         cursor:pointer;box-shadow:var(--shadow);transition:.12s}
+  .dcard:active{transform:scale(.99)}.dcard.empty{opacity:.45}
+  .dcard .code{font-size:18px;font-weight:800;letter-spacing:.01em}
+  .dcard .sub{font-size:12px;color:var(--muted);margin-top:7px}
+  .dcard .units{font-size:13px;font-weight:700;color:var(--green);margin-top:2px}
+  .dsum{font-size:13px;color:var(--ink);font-weight:600;margin:2px 4px 0}
+  .prow{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--card);
+        border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+  .prow.short{border-color:#ecd9b4;background:var(--amber-bg)}
+  .prow .nm{font-weight:600;font-size:15px;letter-spacing:-.01em}
+  .prow .det{font-size:12px;color:var(--muted);margin-top:3px}
+  .prow .det .sh{color:var(--amber);font-weight:600}
+  .prow .send{text-align:right;flex:0 0 auto}
+  .prow .send .q{font-size:23px;font-weight:800;color:var(--green);line-height:1}
+  .prow .send .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
   footer{text-align:center;color:var(--muted);font-size:11px;padding:24px 0 32px}
 </style>
 
@@ -130,6 +153,7 @@ const TGT={KTM:25,NGD:15,BTL:11,POK:20,DMK:4,BTM:7,ITH:10,NPJ:3,LHN:2.5,ATR:2.5}
 const CATS=["Hero","Core","Slow","Dead"];
 const STOCKS=["Overstock","Low","Healthy"];
 const FLOOR=1,HIT=0.75,OVER=2,UNDER=0.5;   // overstock >2mo cover, low <0.5mo cover
+const HOLD=0.70;                            // each branch holds 70% of its own monthly sales; godown 70% of total
 const C={sn:0,name:1,com:2,salesStart:3,salesTotal:13,cp:14,salesAmt:15,ont:19,stockStart:20,stockTotal:30,stockAmt:32};
 
 function monthInfo(d){
@@ -171,9 +195,34 @@ function transferHint(p){
   else SALES_BRANCHES.forEach(b=>{if(p.stock[b]>0&&(!src||p.stock[b]>src.qty))src={name:b,qty:p.stock[b]};});
   return src?{dry,src}:null;
 }
+// Dispatch: each branch should hold 70% of its own monthly sales; godown 70% of total.
+// When the godown can't cover all branch needs for a product, fill by priority of branch sales.
+function computeDispatch(){
+  const branches={};SALES_BRANCHES.forEach(b=>branches[b]=[]);
+  const reorder=[];
+  PRODUCTS.forEach((p,i)=>{
+    const rateTot=FRAC.f>0?p.salesTotal/FRAC.f:p.salesTotal;
+    const gTarget=Math.round(HOLD*rateTot);
+    if(p.ont<gTarget)reorder.push({i,have:p.ont,target:gTarget,short:gTarget-p.ont});
+    const needs=SALES_BRANCHES.map(b=>{
+      const rate=FRAC.f>0?p.sales[b]/FRAC.f:p.sales[b];
+      const target=Math.round(HOLD*rate);
+      const stock=Math.round(p.stock[b]);
+      return{b,target,stock,need:Math.max(0,target-stock),sales:p.sales[b]};
+    });
+    let avail=Math.max(0,Math.round(p.ont));
+    needs.slice().sort((x,y)=>y.sales-x.sales).forEach(n=>{
+      const give=Math.min(n.need,avail);n.send=give;avail-=give;n.shorted=give<n.need;
+    });
+    needs.forEach(n=>{if(n.send>0)branches[n.b].push({i,send:n.send,need:n.need,shorted:n.shorted,target:n.target,stock:n.stock});});
+  });
+  SALES_BRANCHES.forEach(b=>branches[b].sort((x,y)=>y.send-x.send));
+  reorder.sort((x,y)=>y.short-x.short);
+  return{branches,reorder};
+}
 
 /* ---------- state ---------- */
-let PRODUCTS=[],REPORT_DATE="",FRAC={f:1,exact:false,label:""};
+let PRODUCTS=[],REPORT_DATE="",FRAC={f:1,exact:false,label:""},DISPATCH={branches:{},reorder:[]};
 let view={screen:"upload"};
 const $=id=>document.getElementById(id),app=$("app");
 const qty=n=>(n==null||n===""?"0":Number(n).toLocaleString("en-IN"));
@@ -230,6 +279,7 @@ function setReport(date,products){
     p.proj=FRAC.f>0?p.salesAmt/FRAC.f:p.salesAmt;
     const sh=stockHealth(p,FRAC.f);p.stockHealth=sh.status;p.cover=sh.cover;p.rate=sh.rate;
   });
+  DISPATCH=computeDispatch();
 }
 function handleFile(file){
   $("err").textContent="";
@@ -291,7 +341,9 @@ function renderList(){
   if(cat==="All"&&!q)label=lens==="sales"?`Top by sales · ${PRODUCTS.length} products`:`Most frozen first · ${PRODUCTS.length} products`;
   else label=`${list.length} ${list.length===1?"product":"products"}`;
   app.innerHTML=`<header>
-    <div class="htop"><span class="ttl">Products</span>
+    <div class="htop"><div class="nav">
+        <button data-go="list" class="on">Products</button>
+        <button data-go="dispatch">Dispatch</button></div>
       <button class="reload" id="reload">New file</button>
       <span class="date">${REPORT_DATE||""}${sub}</span></div>
     <input class="search" id="search" placeholder="Search product or company…" value="${esc(q)}" autocomplete="off">
@@ -316,7 +368,9 @@ function renderList(){
         <div class="meta"><span class="badge s-${p.stockHealth}">${p.stockHealth}</span>${coverText(p)}</div></div>
       <div class="rt"><div class="a num ${neg(p.stockTotal)}">${qty(p.stockTotal)} stock</div>
         <div class="b num">${money(p.stockAmt)}</div></div></div>`;}).join("");
-  res.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,query:q,lens,cat};render();});
+  res.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,ret:{screen:"list",query:q,lens,cat}};render();});
+  document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>{
+    if(el.dataset.go==="dispatch")view={screen:"dispatch",mode:"branches"};render();});
   document.querySelectorAll(".seg button").forEach(el=>el.onclick=()=>{view.lens=el.dataset.lens;view.cat="All";render();});
   document.querySelectorAll(".chip").forEach(el=>el.onclick=()=>{view.cat=el.dataset.cat;render();});
   const s=$("search");
@@ -368,12 +422,80 @@ function renderDetail(){
     <div class="bsec"><div class="listlabel"><span>By branch</span><span>${flagSummary}</span></div>
       <div class="bgrid">${cards}</div></div>
     <footer>${REPORT_DATE||""}${FRAC.label?" · "+FRAC.label:""}</footer></main>`;
-  $("back").onclick=()=>{view={screen:"list",query:view.query||"",lens:view.lens||"sales",cat:view.cat||"All"};render();};
+  $("back").onclick=()=>{view=view.ret||{screen:"list",query:"",lens:"sales",cat:"All"};render();};
+}
+
+function renderDispatch(){
+  const mode=view.mode||"branches";
+  const sub=FRAC.label?` · ${FRAC.label}`:"";
+  const nav=`<div class="htop"><div class="nav">
+      <button data-go="list">Products</button>
+      <button data-go="dispatch" class="on">Dispatch</button></div>
+    <button class="reload" id="reload">New file</button>
+    <span class="date">${REPORT_DATE||""}${sub}</span></div>`;
+  const seg=`<div class="seg">
+      <button data-mode="branches" class="${mode==="branches"?"on":""}">To branches</button>
+      <button data-mode="reorder" class="${mode==="reorder"?"on":""}">Godown reorder<span style="opacity:.7">&nbsp;${DISPATCH.reorder.length}</span></button>
+    </div>`;
+  let body;
+  if(mode==="branches"){
+    let totUnits=0,totLines=0;
+    const cards=SALES_BRANCHES.map(b=>{
+      const list=DISPATCH.branches[b]||[];
+      const units=list.reduce((s,x)=>s+x.send,0);totUnits+=units;totLines+=list.length;
+      return `<div class="dcard ${list.length?"":"empty"}" data-branch="${b}">
+        <div class="code">${b}</div>
+        <div class="sub">${list.length} ${list.length===1?"product":"products"} to send</div>
+        <div class="units">${qty(units)} units</div></div>`;}).join("");
+    body=`<div class="dsum">${qty(totUnits)} units across ${totLines} lines to dispatch</div>
+      <div class="note">Targets are 70% of each branch's sales this month. Pick a branch to see its list.</div>
+      <div class="dgrid">${cards}</div>`;
+  }else{
+    const list=DISPATCH.reorder;
+    body=`<div class="note">Products where the ONT godown is below its 70% buffer of total monthly sales — reorder from the supplier. ${list.length} products.</div>`;
+    body+=list.length?list.map(r=>{const p=PRODUCTS[r.i];
+      return `<div class="row" data-i="${r.i}">
+        <div><div class="nm">${p.name}</div>
+          <div class="meta">godown ${qty(r.have)} → target ${qty(r.target)}</div></div>
+        <div class="rt"><div class="a num" style="color:var(--amber)">+${qty(r.short)}</div>
+          <div class="b">to reorder</div></div></div>`;}).join(""):`<div class="empty">Godown buffer is healthy across the board.</div>`;
+  }
+  app.innerHTML=`<header>${nav}${seg}</header>
+    <main>${body}</main>
+    <footer>Based on this month's sales · ${REPORT_DATE||""}${sub}</footer>`;
+  document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>{
+    view=el.dataset.go==="list"?{screen:"list",query:"",lens:"sales",cat:"All"}:{screen:"dispatch",mode:"branches"};render();});
+  document.querySelectorAll(".seg button").forEach(el=>el.onclick=()=>{view={screen:"dispatch",mode:el.dataset.mode};render();});
+  document.querySelectorAll(".dcard").forEach(el=>el.onclick=()=>{const b=el.dataset.branch;
+    if((DISPATCH.branches[b]||[]).length)view={screen:"dispatchBranch",branch:b};render();});
+  document.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,ret:{screen:"dispatch",mode:"reorder"}};render();});
+  const rl=$("reload");if(rl)rl.onclick=()=>{view={screen:"upload"};render();};
+}
+
+function renderDispatchBranch(){
+  const b=view.branch,list=DISPATCH.branches[b]||[];
+  const units=list.reduce((s,x)=>s+x.send,0);
+  const rows=list.map(x=>{const p=PRODUCTS[x.i];
+    return `<div class="prow ${x.shorted?"short":""}" data-i="${x.i}">
+      <div><div class="nm">${p.name}</div>
+        <div class="det">stock ${qty(x.stock)} → target ${qty(x.target)}${x.shorted?` · <span class="sh">godown short — ${qty(x.send)} of ${qty(x.need)}</span>`:""}</div></div>
+      <div class="send"><div class="q">${qty(x.send)}</div><div class="l">send</div></div></div>`;}).join("");
+  app.innerHTML=`<main>
+    <button class="back" id="back">‹ Dispatch</button>
+    <div class="pname">${b}</div>
+    <div class="dsum" style="margin-top:8px">${list.length} ${list.length===1?"product":"products"} · ${qty(units)} units to send</div>
+    <div class="note">Quantities reach 70% of this branch's monthly sales. Amber = godown couldn't fully cover.</div>
+    ${rows||`<div class="empty">Nothing to send — this branch is at target.</div>`}
+    <footer>Based on this month's sales · ${REPORT_DATE||""}${FRAC.label?" · "+FRAC.label:""}</footer></main>`;
+  $("back").onclick=()=>{view={screen:"dispatch",mode:"branches"};render();};
+  document.querySelectorAll(".prow").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,ret:{screen:"dispatchBranch",branch:b}};render();});
 }
 
 function render(){
   if(view.screen==="upload")renderUpload();
   else if(view.screen==="list")renderList();
+  else if(view.screen==="dispatch")renderDispatch();
+  else if(view.screen==="dispatchBranch")renderDispatchBranch();
   else renderDetail();
   if(view.screen!=="list")window.scrollTo(0,0);
 }
