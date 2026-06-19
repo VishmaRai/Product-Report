@@ -153,7 +153,6 @@ const TGT={KTM:25,NGD:15,BTL:11,POK:20,DMK:4,BTM:7,ITH:10,NPJ:3,LHN:2.5,ATR:2.5}
 const CATS=["Hero","Core","Slow","Dead"];
 const STOCKS=["Overstock","Low","Healthy"];
 const FLOOR=1,HIT=0.75,OVER=2,UNDER=0.5;   // overstock >2mo cover, low <0.5mo cover
-const HOLD=0.70;                            // each branch holds 70% of its own monthly sales; godown 70% of total
 const C={sn:0,name:1,com:2,salesStart:3,salesTotal:13,cp:14,salesAmt:15,ont:19,stockStart:20,stockTotal:30,stockAmt:32};
 
 function monthInfo(d){
@@ -195,34 +194,70 @@ function transferHint(p){
   else SALES_BRANCHES.forEach(b=>{if(p.stock[b]>0&&(!src||p.stock[b]>src.qty))src={name:b,qty:p.stock[b]};});
   return src?{dry,src}:null;
 }
-// Dispatch: each branch should hold 70% of its own monthly sales; godown 70% of total.
-// When the godown can't cover all branch needs for a product, fill by priority of branch sales.
-function computeDispatch(){
+// ---- Dispatch from the daily Inventory Analysis workbook ----
+// Reads each branch sheet (current stock, avg daily sales, 20-day max) and the ONT godown sheet.
+// Per branch: send = max(0, 20-day max - current). When the godown can't cover every branch's
+// need for a product, it is split by priority of branch sales (biggest seller filled first).
+function readAnalysisSheet(wb,name){
+  const sh=wb.Sheets[name];if(!sh)return[];
+  const rows=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:null});
+  let h=-1,ix={};
+  for(let r=0;r<rows.length;r++){
+    const cells=(rows[r]||[]).map(c=>c==null?"":String(c).trim().toLowerCase());
+    if(cells.includes("product")){h=r;
+      cells.forEach((c,i)=>{
+        if(c==="product")ix.name=i;
+        else if(c==="current stock")ix.cur=i;
+        else if(c.startsWith("avg daily"))ix.avg=i;
+        else if(c.startsWith("max stock"))ix.max=i;
+        else if(c==="status")ix.st=i;});
+      break;}
+  }
+  if(h<0||ix.name==null)return[];
+  const out=[];
+  for(let r=h+1;r<rows.length;r++){
+    const nm=rows[r]&&rows[r][ix.name];
+    if(nm==null||String(nm).trim()==="")continue;
+    out.push({name:String(nm).trim(),
+      current:Math.round(Number(rows[r][ix.cur])||0),
+      avg:ix.avg!=null?Number(rows[r][ix.avg])||0:0,
+      max:Math.round(ix.max!=null?Number(rows[r][ix.max])||0:0),
+      status:ix.st!=null?String(rows[r][ix.st]||"").trim():""});
+  }
+  return out;
+}
+function buildWbDispatch(wb){
+  const ont={};
+  readAnalysisSheet(wb,"ONT").forEach(o=>ont[o.name]={current:o.current,max:o.max});
+  const prod={};                       // name -> { branch: {need,avg,current,max} }
+  let branchRows=0;
+  SALES_BRANCHES.forEach(b=>{
+    readAnalysisSheet(wb,b).forEach(row=>{
+      branchRows++;
+      const need=Math.max(0,row.max-row.current);
+      (prod[row.name]=prod[row.name]||{})[b]={need,avg:row.avg,current:row.current,max:row.max};
+    });
+  });
+  if(!branchRows)return null;
   const branches={};SALES_BRANCHES.forEach(b=>branches[b]=[]);
-  const reorder=[];
-  PRODUCTS.forEach((p,i)=>{
-    const rateTot=FRAC.f>0?p.salesTotal/FRAC.f:p.salesTotal;
-    const gTarget=Math.round(HOLD*rateTot);
-    if(p.ont<gTarget)reorder.push({i,have:p.ont,target:gTarget,short:gTarget-p.ont});
-    const needs=SALES_BRANCHES.map(b=>{
-      const rate=FRAC.f>0?p.sales[b]/FRAC.f:p.sales[b];
-      const target=Math.round(HOLD*rate);
-      const stock=Math.round(p.stock[b]);
-      return{b,target,stock,need:Math.max(0,target-stock),sales:p.sales[b]};
-    });
-    let avail=Math.max(0,Math.round(p.ont));
-    needs.slice().sort((x,y)=>y.sales-x.sales).forEach(n=>{
-      const give=Math.min(n.need,avail);n.send=give;avail-=give;n.shorted=give<n.need;
-    });
-    needs.forEach(n=>{if(n.send>0)branches[n.b].push({i,send:n.send,need:n.need,shorted:n.shorted,target:n.target,stock:n.stock});});
+  Object.keys(prod).forEach(name=>{
+    const per=prod[name];
+    const entries=SALES_BRANCHES.filter(b=>per[b]).map(b=>({b,...per[b]}));
+    let avail=Math.max(0,(ont[name]&&ont[name].current)||0);
+    entries.slice().sort((x,y)=>y.avg-x.avg).forEach(e=>{
+      const give=Math.min(e.need,avail);e.send=give;avail-=give;e.shorted=give<e.need;});
+    entries.forEach(e=>{if(e.send>0)branches[e.b].push({name,send:e.send,need:e.need,shorted:e.shorted,current:e.current,max:e.max});});
   });
   SALES_BRANCHES.forEach(b=>branches[b].sort((x,y)=>y.send-x.send));
+  const reorder=[];
+  Object.keys(ont).forEach(name=>{const o=ont[name];const short=Math.max(0,o.max-o.current);
+    if(short>0)reorder.push({name,have:o.current,target:o.max,short});});
   reorder.sort((x,y)=>y.short-x.short);
   return{branches,reorder};
 }
 
 /* ---------- state ---------- */
-let PRODUCTS=[],REPORT_DATE="",FRAC={f:1,exact:false,label:""},DISPATCH={branches:{},reorder:[]};
+let PRODUCTS=[],REPORT_DATE="",FRAC={f:1,exact:false,label:""},WB_DISPATCH=null;
 let view={screen:"upload"};
 const $=id=>document.getElementById(id),app=$("app");
 const qty=n=>(n==null||n===""?"0":Number(n).toLocaleString("en-IN"));
@@ -251,6 +286,30 @@ const KEY="dr_report_v2";
 function save(){try{localStorage.setItem(KEY,JSON.stringify({date:REPORT_DATE,products:PRODUCTS}));}catch(e){}}
 function loadSaved(){try{const r=localStorage.getItem(KEY);if(!r)return null;const o=JSON.parse(r);
   return(o&&o.products&&o.products.length)?o:null;}catch(e){return null;}}
+const WBKEY="dr_dispatch_v1";
+function saveWb(){try{localStorage.setItem(WBKEY,JSON.stringify(WB_DISPATCH));}catch(e){}}
+function loadWb(){try{const r=localStorage.getItem(WBKEY);if(!r)return null;const o=JSON.parse(r);
+  return(o&&o.branches)?o:null;}catch(e){}return null;}
+function clearWb(){try{localStorage.removeItem(WBKEY);}catch(e){}}
+function handleWorkbook(file){
+  const el=$("wberr");if(el)el.textContent="";
+  const wbDate=(file.name.match(/(\d{4}-\d{2}-\d{2})/)||[])[1]||"";
+  const rd=new FileReader();
+  rd.onload=e=>{try{
+    const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+    const d=buildWbDispatch(wb);
+    if(!d)throw new Error("Couldn't find the branch sheets. Is this the Inventory Analysis workbook?");
+    d.date=wbDate;WB_DISPATCH=d;saveWb();
+    view={screen:"dispatch",mode:"branches"};render();
+  }catch(err){const x=$("wberr");if(x)x.textContent=err.message||"Could not read that workbook.";}};
+  rd.onerror=()=>{const x=$("wberr");if(x)x.textContent="Could not read that workbook.";};
+  rd.readAsArrayBuffer(file);
+}
+function navTo(go){
+  if(go==="dispatch")view={screen:"dispatch",mode:view.mode||"branches"};
+  else view=PRODUCTS.length?{screen:"list",query:"",lens:"sales",cat:"All"}:{screen:"upload"};
+  render();
+}
 
 /* ---------- parse + derive ---------- */
 function parseWorkbook(wb){
@@ -279,7 +338,6 @@ function setReport(date,products){
     p.proj=FRAC.f>0?p.salesAmt/FRAC.f:p.salesAmt;
     const sh=stockHealth(p,FRAC.f);p.stockHealth=sh.status;p.cover=sh.cover;p.rate=sh.rate;
   });
-  DISPATCH=computeDispatch();
 }
 function handleFile(file){
   $("err").textContent="";
@@ -306,9 +364,11 @@ function renderUpload(){
     <label class="drop" id="drop"><div class="ic">📄</div><div class="big">Upload report</div>
       <div class="sm">Tap to choose an .xlsx file</div><input id="file" type="file" accept=".xlsx,.xls" hidden></label>
     <div class="err" id="err"></div>
-    ${showKeep?`<button class="keep" id="keep">‹ Keep current report</button>`:""}</div>`;
+    ${showKeep?`<button class="keep" id="keep">‹ Keep current report</button>`:""}
+    <button class="keep" id="todispatch" style="margin-top:14px">Go to Dispatch →</button></div>`;
   try{const x=$("mark").getContext("2d");const img=new Image();img.onload=()=>x.drawImage(img,0,0,64,64);img.src=makeIcon();}catch(e){}
   $("file").onchange=e=>{if(e.target.files[0])handleFile(e.target.files[0]);};
+  $("todispatch").onclick=()=>{view={screen:"dispatch",mode:"branches"};render();};
   const drop=$("drop");
   ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
   ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
@@ -369,8 +429,7 @@ function renderList(){
       <div class="rt"><div class="a num ${neg(p.stockTotal)}">${qty(p.stockTotal)} stock</div>
         <div class="b num">${money(p.stockAmt)}</div></div></div>`;}).join("");
   res.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,ret:{screen:"list",query:q,lens,cat}};render();});
-  document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>{
-    if(el.dataset.go==="dispatch")view={screen:"dispatch",mode:"branches"};render();});
+  document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>navTo(el.dataset.go));
   document.querySelectorAll(".seg button").forEach(el=>el.onclick=()=>{view.lens=el.dataset.lens;view.cat="All";render();});
   document.querySelectorAll(".chip").forEach(el=>el.onclick=()=>{view.cat=el.dataset.cat;render();});
   const s=$("search");
@@ -425,70 +484,84 @@ function renderDetail(){
   $("back").onclick=()=>{view=view.ret||{screen:"list",query:"",lens:"sales",cat:"All"};render();};
 }
 
-function renderDispatch(){
-  const mode=view.mode||"branches";
-  const sub=FRAC.label?` · ${FRAC.label}`:"";
-  const nav=`<div class="htop"><div class="nav">
+function dispatchNav(){
+  return `<div class="htop"><div class="nav">
       <button data-go="list">Products</button>
       <button data-go="dispatch" class="on">Dispatch</button></div>
-    <button class="reload" id="reload">New file</button>
-    <span class="date">${REPORT_DATE||""}${sub}</span></div>`;
+    ${WB_DISPATCH?`<button class="reload" id="newwb">New workbook</button>
+    <span class="date">${WB_DISPATCH.date||""}</span>`:""}</div>`;
+}
+function renderDispatch(){
+  if(!WB_DISPATCH){
+    app.innerHTML=`<header>${dispatchNav()}</header>
+      <div class="upload-wrap" style="min-height:60vh">
+        <h1 style="font-size:20px">Dispatch</h1>
+        <p>Upload today's <b>Inventory Analysis</b> workbook to generate each branch's send list.</p>
+        <label class="drop" id="wbdrop"><div class="ic">📦</div><div class="big">Upload workbook</div>
+          <div class="sm">The multi-sheet .xlsx your analysis generates</div>
+          <input id="wbfile" type="file" accept=".xlsx,.xls" hidden></label>
+        <div class="err" id="wberr"></div></div>`;
+    document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>navTo(el.dataset.go));
+    $("wbfile").onchange=e=>{if(e.target.files[0])handleWorkbook(e.target.files[0]);};
+    const d=$("wbdrop");
+    ["dragover","dragenter"].forEach(ev=>d.addEventListener(ev,e=>{e.preventDefault();d.classList.add("over");}));
+    ["dragleave","drop"].forEach(ev=>d.addEventListener(ev,e=>{e.preventDefault();d.classList.remove("over");}));
+    d.addEventListener("drop",e=>{if(e.dataTransfer.files[0])handleWorkbook(e.dataTransfer.files[0]);});
+    return;
+  }
+  const mode=view.mode||"branches";
   const seg=`<div class="seg">
       <button data-mode="branches" class="${mode==="branches"?"on":""}">To branches</button>
-      <button data-mode="reorder" class="${mode==="reorder"?"on":""}">Godown reorder<span style="opacity:.7">&nbsp;${DISPATCH.reorder.length}</span></button>
+      <button data-mode="reorder" class="${mode==="reorder"?"on":""}">Godown reorder<span style="opacity:.7">&nbsp;${WB_DISPATCH.reorder.length}</span></button>
     </div>`;
   let body;
   if(mode==="branches"){
     let totUnits=0,totLines=0;
     const cards=SALES_BRANCHES.map(b=>{
-      const list=DISPATCH.branches[b]||[];
+      const list=WB_DISPATCH.branches[b]||[];
       const units=list.reduce((s,x)=>s+x.send,0);totUnits+=units;totLines+=list.length;
       return `<div class="dcard ${list.length?"":"empty"}" data-branch="${b}">
         <div class="code">${b}</div>
         <div class="sub">${list.length} ${list.length===1?"product":"products"} to send</div>
         <div class="units">${qty(units)} units</div></div>`;}).join("");
     body=`<div class="dsum">${qty(totUnits)} units across ${totLines} lines to dispatch</div>
-      <div class="note">Targets are 70% of each branch's sales this month. Pick a branch to see its list.</div>
+      <div class="note">Each branch is topped up to its 20-day level, from real sales history. Pick a branch.</div>
       <div class="dgrid">${cards}</div>`;
   }else{
-    const list=DISPATCH.reorder;
-    body=`<div class="note">Products where the ONT godown is below its 70% buffer of total monthly sales — reorder from the supplier. ${list.length} products.</div>`;
-    body+=list.length?list.map(r=>{const p=PRODUCTS[r.i];
-      return `<div class="row" data-i="${r.i}">
-        <div><div class="nm">${p.name}</div>
-          <div class="meta">godown ${qty(r.have)} → target ${qty(r.target)}</div></div>
-        <div class="rt"><div class="a num" style="color:var(--amber)">+${qty(r.short)}</div>
-          <div class="b">to reorder</div></div></div>`;}).join(""):`<div class="empty">Godown buffer is healthy across the board.</div>`;
+    const list=WB_DISPATCH.reorder;
+    body=`<div class="note">Products where the ONT godown is below its own max — reorder from the supplier. ${list.length} products.</div>`;
+    body+=list.length?list.map(r=>
+      `<div class="prow"><div><div class="nm">${r.name}</div>
+        <div class="det">godown ${qty(r.have)} → max ${qty(r.target)}</div></div>
+        <div class="send"><div class="q" style="color:var(--amber)">+${qty(r.short)}</div><div class="l">reorder</div></div></div>`
+      ).join(""):`<div class="empty">Godown is at or above max across the board.</div>`;
   }
-  app.innerHTML=`<header>${nav}${seg}</header>
+  app.innerHTML=`<header>${dispatchNav()}${seg}</header>
     <main>${body}</main>
-    <footer>Based on this month's sales · ${REPORT_DATE||""}${sub}</footer>`;
-  document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>{
-    view=el.dataset.go==="list"?{screen:"list",query:"",lens:"sales",cat:"All"}:{screen:"dispatch",mode:"branches"};render();});
+    <footer>From the Inventory Analysis workbook · ${WB_DISPATCH.date||""}</footer>`;
+  document.querySelectorAll(".nav button").forEach(el=>el.onclick=()=>navTo(el.dataset.go));
   document.querySelectorAll(".seg button").forEach(el=>el.onclick=()=>{view={screen:"dispatch",mode:el.dataset.mode};render();});
   document.querySelectorAll(".dcard").forEach(el=>el.onclick=()=>{const b=el.dataset.branch;
-    if((DISPATCH.branches[b]||[]).length)view={screen:"dispatchBranch",branch:b};render();});
-  document.querySelectorAll(".row").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,ret:{screen:"dispatch",mode:"reorder"}};render();});
-  const rl=$("reload");if(rl)rl.onclick=()=>{view={screen:"upload"};render();};
+    if((WB_DISPATCH.branches[b]||[]).length)view={screen:"dispatchBranch",branch:b};render();});
+  const rl=$("newwb");if(rl)rl.onclick=()=>{WB_DISPATCH=null;clearWb();view={screen:"dispatch",mode:"branches"};render();};
 }
 
 function renderDispatchBranch(){
-  const b=view.branch,list=DISPATCH.branches[b]||[];
+  const b=view.branch,list=(WB_DISPATCH&&WB_DISPATCH.branches[b])||[];
   const units=list.reduce((s,x)=>s+x.send,0);
-  const rows=list.map(x=>{const p=PRODUCTS[x.i];
-    return `<div class="prow ${x.shorted?"short":""}" data-i="${x.i}">
-      <div><div class="nm">${p.name}</div>
-        <div class="det">stock ${qty(x.stock)} → target ${qty(x.target)}${x.shorted?` · <span class="sh">godown short — ${qty(x.send)} of ${qty(x.need)}</span>`:""}</div></div>
-      <div class="send"><div class="q">${qty(x.send)}</div><div class="l">send</div></div></div>`;}).join("");
+  const rows=list.map(x=>
+    `<div class="prow ${x.shorted?"short":""}">
+      <div><div class="nm">${x.name}</div>
+        <div class="det">stock ${qty(x.current)} → target ${qty(x.max)}${x.shorted?` · <span class="sh">godown short — ${qty(x.send)} of ${qty(x.need)}</span>`:""}</div></div>
+      <div class="send"><div class="q">${qty(x.send)}</div><div class="l">send</div></div></div>`).join("");
   app.innerHTML=`<main>
     <button class="back" id="back">‹ Dispatch</button>
     <div class="pname">${b}</div>
     <div class="dsum" style="margin-top:8px">${list.length} ${list.length===1?"product":"products"} · ${qty(units)} units to send</div>
-    <div class="note">Quantities reach 70% of this branch's monthly sales. Amber = godown couldn't fully cover.</div>
-    ${rows||`<div class="empty">Nothing to send — this branch is at target.</div>`}
-    <footer>Based on this month's sales · ${REPORT_DATE||""}${FRAC.label?" · "+FRAC.label:""}</footer></main>`;
+    <div class="note">Top up to the branch's 20-day level. Amber = the godown couldn't fully cover; biggest-selling branches were filled first.</div>
+    ${rows||`<div class="empty">Nothing to send — this branch is at its level.</div>`}
+    <footer>From the Inventory Analysis workbook · ${WB_DISPATCH?WB_DISPATCH.date||"":""}</footer></main>`;
   $("back").onclick=()=>{view={screen:"dispatch",mode:"branches"};render();};
-  document.querySelectorAll(".prow").forEach(el=>el.onclick=()=>{view={screen:"detail",i:+el.dataset.i,ret:{screen:"dispatchBranch",branch:b}};render();});
 }
 
 function render(){
@@ -499,7 +572,9 @@ function render(){
   else renderDetail();
   if(view.screen!=="list")window.scrollTo(0,0);
 }
-(function init(){const s=loadSaved();
+(function init(){
+  WB_DISPATCH=loadWb();
+  const s=loadSaved();
   if(s){setReport(s.date,s.products);view={screen:"list",query:"",lens:"sales",cat:"All"};}
   render();})();
 </script>
